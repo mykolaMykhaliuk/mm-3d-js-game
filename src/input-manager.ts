@@ -1,11 +1,14 @@
 import { Scene } from '@babylonjs/core/scene';
 import { Vector2, Vector3 } from '@babylonjs/core/Maths/math.vector';
-import { PointerEventTypes } from '@babylonjs/core/Events/pointerEvents';
 import '@babylonjs/core/Culling/ray';
 import { isMobile } from './utils/helpers';
 import { debugLog } from './utils/debug-logger';
 
 const TAG = 'InputManager';
+
+/** Joystick config */
+const JOYSTICK_RADIUS = 120; // Max drag radius in CSS pixels
+const JOYSTICK_DEAD_ZONE = 15; // Minimum drag before registering movement
 
 /**
  * Unified input state exposed to game logic
@@ -20,23 +23,48 @@ export interface InputState {
 }
 
 /**
- * Manages all input (keyboard, mouse, touch) with a unified API
+ * Tracked touch pointer for multi-touch handling
+ */
+interface TrackedPointer {
+  id: number;
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+  role: 'joystick' | 'shoot';
+}
+
+/**
+ * Manages all input (keyboard, mouse, touch) with a unified API.
+ * On mobile, uses raw DOM pointer events for reliable multi-touch:
+ *   - Bottom-left joystick zone controls movement
+ *   - Any touch outside the joystick triggers shooting
+ *   - Multiple simultaneous touches are fully supported
  */
 export class InputManager {
   private scene: Scene;
   private mobile: boolean;
 
-  // Keyboard state
+  // Keyboard state (desktop only)
   private keys: Set<string> = new Set();
 
-  // Mouse/Touch state
-  private pointerPosition: Vector2 = Vector2.Zero();
-  private pointerDown: boolean = false;
+  // Desktop mouse state
+  private mouseDown: boolean = false;
+  private mousePosition: Vector2 = Vector2.Zero();
 
-  // Virtual joystick (mobile only)
-  private joystickActive: boolean = false;
-  private joystickOrigin: Vector2 = Vector2.Zero();
-  private joystickCurrent: Vector2 = Vector2.Zero();
+  // Multi-touch state (mobile only)
+  private pointers: Map<number, TrackedPointer> = new Map();
+  private joystickPointerId: number = -1;
+
+  // Joystick visual state (read by HUDManager)
+  joystickVisible: boolean = false;
+  joystickBaseX: number = 0;
+  joystickBaseY: number = 0;
+  joystickKnobX: number = 0;
+  joystickKnobY: number = 0;
+
+  // Shooting flash state (read by HUDManager)
+  shootFlashTimer: number = 0;
 
   // Cached input state
   private inputState: InputState = {
@@ -44,6 +72,9 @@ export class InputManager {
     aimPoint: Vector3.Zero(),
     shooting: false,
   };
+
+  // Last shoot touch position for aim direction
+  private lastShootScreenPos: Vector2 | null = null;
 
   constructor(scene: Scene) {
     this.scene = scene;
@@ -60,148 +91,215 @@ export class InputManager {
   }
 
   /**
-   * Set up DOM and Babylon event listeners
+   * Set up DOM event listeners
    */
   private setupEventListeners(): void {
-    // Keyboard events (desktop)
-    if (!this.mobile) {
-      window.addEventListener('keydown', (e) => this.onKeyDown(e));
-      window.addEventListener('keyup', (e) => this.onKeyUp(e));
-      debugLog.info(TAG, 'Keyboard event listeners added (desktop mode)');
-    } else {
-      debugLog.info(TAG, 'Skipping keyboard listeners (mobile mode)');
+    const canvas = this.scene.getEngine().getRenderingCanvas();
+    if (!canvas) {
+      debugLog.warn(TAG, 'No canvas found for event listeners');
+      return;
     }
 
-    // Pointer events (mouse and touch)
-    this.scene.onPointerObservable.add((pointerInfo) => {
-      const event = pointerInfo.event as PointerEvent;
+    if (this.mobile) {
+      // Mobile: use raw DOM pointer events for reliable multi-touch
+      canvas.addEventListener('pointerdown', (e: PointerEvent) => this.onTouchStart(e), { passive: false });
+      canvas.addEventListener('pointermove', (e: PointerEvent) => this.onTouchMove(e), { passive: false });
+      canvas.addEventListener('pointerup', (e: PointerEvent) => this.onTouchEnd(e), { passive: false });
+      canvas.addEventListener('pointercancel', (e: PointerEvent) => this.onTouchEnd(e), { passive: false });
 
-      switch (pointerInfo.type) {
-        case PointerEventTypes.POINTERDOWN:
-          this.onPointerDown(event);
-          break;
-        case PointerEventTypes.POINTERUP:
-          this.onPointerUp(event);
-          break;
-        case PointerEventTypes.POINTERMOVE:
-          this.onPointerMove(event);
-          break;
-      }
-    });
-    debugLog.info(TAG, 'Pointer observable registered');
+      // Prevent context menu on long press
+      canvas.addEventListener('contextmenu', (e: Event) => e.preventDefault());
+
+      debugLog.info(TAG, 'Mobile pointer event listeners added');
+    } else {
+      // Desktop: keyboard + mouse
+      window.addEventListener('keydown', (e) => this.onKeyDown(e));
+      window.addEventListener('keyup', (e) => this.onKeyUp(e));
+      canvas.addEventListener('pointerdown', (e: PointerEvent) => this.onMouseDown(e));
+      canvas.addEventListener('pointerup', (e: PointerEvent) => this.onMouseUp(e));
+      canvas.addEventListener('pointermove', (e: PointerEvent) => this.onMouseMove(e));
+      canvas.addEventListener('contextmenu', (e: Event) => e.preventDefault());
+
+      debugLog.info(TAG, 'Desktop keyboard + mouse event listeners added');
+    }
   }
 
-  /**
-   * Handle keydown events
-   */
+  // ─── Desktop handlers ──────────────────────────────────────
+
   private onKeyDown(event: KeyboardEvent): void {
     this.keys.add(event.code);
   }
 
-  /**
-   * Handle keyup events
-   */
   private onKeyUp(event: KeyboardEvent): void {
     this.keys.delete(event.code);
   }
 
-  /**
-   * Handle pointer down events
-   */
-  private onPointerDown(event: PointerEvent): void {
+  private onMouseDown(event: PointerEvent): void {
+    this.mouseDown = true;
+    this.updateMousePosition(event);
+  }
+
+  private onMouseUp(_event: PointerEvent): void {
+    this.mouseDown = false;
+  }
+
+  private onMouseMove(event: PointerEvent): void {
+    this.updateMousePosition(event);
+  }
+
+  private updateMousePosition(event: PointerEvent): void {
     const canvas = this.scene.getEngine().getRenderingCanvas();
     if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    this.mousePosition = new Vector2(event.clientX - rect.left, event.clientY - rect.top);
+  }
+
+  // ─── Mobile multi-touch handlers ───────────────────────────
+
+  /**
+   * Determine if a screen position is within the joystick activation zone.
+   * The zone is the bottom-left quadrant of the screen.
+   */
+  private isInJoystickZone(x: number, y: number): boolean {
+    const canvas = this.scene.getEngine().getRenderingCanvas();
+    if (!canvas) return false;
+    const rect = canvas.getBoundingClientRect();
+    // Bottom-left quadrant: left 40% of screen, bottom 50%
+    return x < rect.width * 0.4 && y > rect.height * 0.5;
+  }
+
+  private onTouchStart(event: PointerEvent): void {
+    event.preventDefault();
+
+    const canvas = this.scene.getEngine().getRenderingCanvas();
+    if (!canvas) return;
+
+    // Capture this pointer so we get move/up even if finger leaves canvas
+    canvas.setPointerCapture(event.pointerId);
 
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
 
-    if (this.mobile) {
-      // Mobile: left half is joystick, right half is fire
-      if (x < rect.width / 2) {
-        // Start virtual joystick
-        this.joystickActive = true;
-        this.joystickOrigin = new Vector2(x, y);
-        this.joystickCurrent = new Vector2(x, y);
-      } else {
-        // Fire button
-        this.pointerDown = true;
-      }
+    // Determine role: joystick if in zone and no joystick pointer active
+    const isJoystick = this.joystickPointerId === -1 && this.isInJoystickZone(x, y);
+
+    const pointer: TrackedPointer = {
+      id: event.pointerId,
+      startX: x,
+      startY: y,
+      currentX: x,
+      currentY: y,
+      role: isJoystick ? 'joystick' : 'shoot',
+    };
+
+    this.pointers.set(event.pointerId, pointer);
+
+    if (isJoystick) {
+      this.joystickPointerId = event.pointerId;
+      this.joystickVisible = true;
+      this.joystickBaseX = x;
+      this.joystickBaseY = y;
+      this.joystickKnobX = x;
+      this.joystickKnobY = y;
     } else {
-      // Desktop: any click is fire
-      this.pointerDown = true;
-    }
-
-    this.updatePointerPosition(event);
-  }
-
-  /**
-   * Handle pointer up events
-   */
-  private onPointerUp(_event: PointerEvent): void {
-    this.pointerDown = false;
-    this.joystickActive = false;
-  }
-
-  /**
-   * Handle pointer move events
-   */
-  private onPointerMove(event: PointerEvent): void {
-    this.updatePointerPosition(event);
-
-    // Update virtual joystick on mobile
-    if (this.mobile && this.joystickActive) {
-      const canvas = this.scene.getEngine().getRenderingCanvas();
-      if (!canvas) return;
-
-      const rect = canvas.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      this.joystickCurrent = new Vector2(x, y);
+      // Shoot touch — record screen position for aim calculation
+      this.lastShootScreenPos = new Vector2(x, y);
     }
   }
 
-  /**
-   * Update cached pointer position for raycasting
-   */
-  private updatePointerPosition(event: PointerEvent): void {
+  private onTouchMove(event: PointerEvent): void {
+    event.preventDefault();
+
+    const pointer = this.pointers.get(event.pointerId);
+    if (!pointer) return;
+
     const canvas = this.scene.getEngine().getRenderingCanvas();
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    this.pointerPosition = new Vector2(event.clientX - rect.left, event.clientY - rect.top);
+    pointer.currentX = event.clientX - rect.left;
+    pointer.currentY = event.clientY - rect.top;
+
+    if (pointer.role === 'joystick') {
+      // Clamp joystick knob to max radius
+      const dx = pointer.currentX - pointer.startX;
+      const dy = pointer.currentY - pointer.startY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist > JOYSTICK_RADIUS) {
+        const scale = JOYSTICK_RADIUS / dist;
+        this.joystickKnobX = pointer.startX + dx * scale;
+        this.joystickKnobY = pointer.startY + dy * scale;
+      } else {
+        this.joystickKnobX = pointer.currentX;
+        this.joystickKnobY = pointer.currentY;
+      }
+    } else {
+      // Update shoot aim position while dragging
+      this.lastShootScreenPos = new Vector2(pointer.currentX, pointer.currentY);
+    }
   }
+
+  private onTouchEnd(event: PointerEvent): void {
+    const pointer = this.pointers.get(event.pointerId);
+    if (!pointer) return;
+
+    if (pointer.role === 'joystick') {
+      this.joystickPointerId = -1;
+      this.joystickVisible = false;
+    }
+
+    this.pointers.delete(event.pointerId);
+  }
+
+  // ─── Per-frame update ──────────────────────────────────────
 
   /**
    * Update input state (called each frame)
    */
-  update(): void {
-    // Update movement direction
+  update(deltaTime: number): void {
     this.inputState.movement = this.getMovementDirection();
-
-    // Update aim point via raycasting
     this.inputState.aimPoint = this.getAimPoint();
+    this.inputState.shooting = this.getShootingState();
 
-    // Update shooting state
-    this.inputState.shooting = this.pointerDown;
-
-    // Reset one-frame states
-    this.pointerDown = false;
+    // Decay shoot flash
+    if (this.shootFlashTimer > 0) {
+      this.shootFlashTimer -= deltaTime;
+      if (this.shootFlashTimer < 0) this.shootFlashTimer = 0;
+    }
   }
 
   /**
-   * Get the current movement direction
+   * Trigger the muzzle flash effect (called by Game when a shot fires)
+   */
+  triggerShootFlash(): void {
+    this.shootFlashTimer = 0.08;
+  }
+
+  /**
+   * Get movement direction from keyboard or virtual joystick
    */
   private getMovementDirection(): Vector2 {
-    if (this.mobile && this.joystickActive) {
-      // Virtual joystick
-      const delta = this.joystickCurrent.subtract(this.joystickOrigin);
-      const length = delta.length();
-      if (length > 10) {
-        // Dead zone
-        return delta.normalize();
-      }
-      return Vector2.Zero();
+    if (this.mobile) {
+      if (this.joystickPointerId === -1) return Vector2.Zero();
+
+      const pointer = this.pointers.get(this.joystickPointerId);
+      if (!pointer) return Vector2.Zero();
+
+      const dx = pointer.currentX - pointer.startX;
+      const dy = pointer.currentY - pointer.startY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < JOYSTICK_DEAD_ZONE) return Vector2.Zero();
+
+      // Normalize and apply magnitude scaling (clamped to 1.0)
+      const magnitude = Math.min(dist / JOYSTICK_RADIUS, 1.0);
+      const nx = dx / dist;
+      const ny = dy / dist;
+
+      // Map screen coordinates to game: x→x (right), y→-z (up on screen = forward)
+      return new Vector2(nx * magnitude, -ny * magnitude);
     } else {
       // Keyboard (WASD or arrow keys)
       let x = 0;
@@ -220,6 +318,21 @@ export class InputManager {
   }
 
   /**
+   * Determine if the player should be shooting this frame
+   */
+  private getShootingState(): boolean {
+    if (this.mobile) {
+      // Any active pointer with role 'shoot' means shooting
+      for (const pointer of this.pointers.values()) {
+        if (pointer.role === 'shoot') return true;
+      }
+      return false;
+    } else {
+      return this.mouseDown;
+    }
+  }
+
+  /**
    * Raycast from camera through pointer to find aim point on ground plane
    */
   private getAimPoint(): Vector3 {
@@ -229,10 +342,24 @@ export class InputManager {
     const camera = this.scene.activeCamera;
     if (!camera) return Vector3.Zero();
 
-    // Create a ray from the camera through the pointer position
+    let screenPos: Vector2;
+
+    if (this.mobile) {
+      // Use last shoot touch position, or screen center as fallback
+      if (this.lastShootScreenPos) {
+        screenPos = this.lastShootScreenPos;
+      } else {
+        const rect = canvas.getBoundingClientRect();
+        screenPos = new Vector2(rect.width / 2, rect.height / 2);
+      }
+    } else {
+      screenPos = this.mousePosition;
+    }
+
+    // Create a ray from the camera through the screen position
     const ray = this.scene.createPickingRay(
-      this.pointerPosition.x,
-      this.pointerPosition.y,
+      screenPos.x,
+      screenPos.y,
       null,
       camera
     );
@@ -242,8 +369,7 @@ export class InputManager {
     const t = (groundY - ray.origin.y) / ray.direction.y;
 
     if (t > 0) {
-      const intersection = ray.origin.add(ray.direction.scale(t));
-      return intersection;
+      return ray.origin.add(ray.direction.scale(t));
     }
 
     return Vector3.Zero();
