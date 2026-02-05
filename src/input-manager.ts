@@ -1,6 +1,7 @@
 import { Scene } from '@babylonjs/core/scene';
 import { Vector2, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { PointerEventTypes } from '@babylonjs/core/Events/pointerEvents';
+import '@babylonjs/core/Culling/ray';
 import { isMobile } from './utils/helpers';
 import { debugLog } from './utils/debug-logger';
 
