@@ -2,6 +2,9 @@ import { Scene } from '@babylonjs/core/scene';
 import { Vector2, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { PointerEventTypes } from '@babylonjs/core/Events/pointerEvents';
 import { isMobile } from './utils/helpers';
+import { debugLog } from './utils/debug-logger';
+
+const TAG = 'InputManager';
 
 /**
  * Unified input state exposed to game logic
@@ -45,7 +48,14 @@ export class InputManager {
     this.scene = scene;
     this.mobile = isMobile();
 
+    debugLog.info(TAG, `Mobile detected: ${this.mobile}`);
+    debugLog.info(
+      TAG,
+      `Touch support: ontouchstart=${'ontouchstart' in window}, maxTouchPoints=${navigator.maxTouchPoints}`
+    );
+
     this.setupEventListeners();
+    debugLog.info(TAG, 'Event listeners registered');
   }
 
   /**
@@ -56,6 +66,9 @@ export class InputManager {
     if (!this.mobile) {
       window.addEventListener('keydown', (e) => this.onKeyDown(e));
       window.addEventListener('keyup', (e) => this.onKeyUp(e));
+      debugLog.info(TAG, 'Keyboard event listeners added (desktop mode)');
+    } else {
+      debugLog.info(TAG, 'Skipping keyboard listeners (mobile mode)');
     }
 
     // Pointer events (mouse and touch)
@@ -74,6 +87,7 @@ export class InputManager {
           break;
       }
     });
+    debugLog.info(TAG, 'Pointer observable registered');
   }
 
   /**

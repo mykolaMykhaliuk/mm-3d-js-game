@@ -11,6 +11,9 @@ import { CollisionSystem } from './systems/collision';
 import { ScoringSystem } from './systems/scoring';
 import { SpawnerSystem } from './systems/spawner';
 import { PROJECTILE_FIRE_RATE } from './utils/constants';
+import { debugLog } from './utils/debug-logger';
+
+const TAG = 'Game';
 
 /**
  * Game states
@@ -48,29 +51,39 @@ export class Game {
   private waitingForNextWave: boolean = false;
 
   constructor(scene: Scene, camera: ArcRotateCamera) {
+    debugLog.info(TAG, 'Constructor: begin');
     this.scene = scene;
     this.camera = camera;
 
     // Initialize managers and systems
+    debugLog.info(TAG, 'Creating EntityManager...');
     this.entityManager = new EntityManager(scene);
+    debugLog.info(TAG, 'Creating InputManager...');
     this.inputManager = new InputManager(scene);
+    debugLog.info(TAG, 'Creating HUDManager...');
     this.hudManager = new HUDManager(scene);
+    debugLog.info(TAG, 'Creating CollisionSystem...');
     this.collisionSystem = new CollisionSystem();
+    debugLog.info(TAG, 'Creating ScoringSystem...');
     this.scoringSystem = new ScoringSystem();
+    debugLog.info(TAG, 'Creating SpawnerSystem...');
     this.spawnerSystem = new SpawnerSystem(scene, this.entityManager);
 
     // Set up HUD callbacks
     this.hudManager.setOnStartGame(() => this.startGame());
     this.hudManager.setOnRestartGame(() => this.restartGame());
+    debugLog.info(TAG, 'HUD callbacks registered');
 
     // Show initial menu
     this.hudManager.showMenu();
+    debugLog.info(TAG, 'Constructor: complete — menu shown');
   }
 
   /**
    * Start a new game
    */
   private startGame(): void {
+    debugLog.info(TAG, 'startGame: transitioning to PLAYING state');
     this.state = GameState.PLAYING;
     this.gameTime = 0;
     this.waitingForNextWave = false;
@@ -83,9 +96,11 @@ export class Game {
     // Create player
     this.player = new Player(this.scene);
     this.entityManager.add(this.player);
+    debugLog.info(TAG, 'Player created and added to EntityManager');
 
     // Start first wave
     this.spawnerSystem.startWave(0);
+    debugLog.info(TAG, 'First wave started');
 
     // Show HUD
     this.hudManager.showHUD();
@@ -242,6 +257,7 @@ export class Game {
    * Handle game over
    */
   private gameOver(): void {
+    debugLog.info(TAG, `Game over — final score: ${this.scoringSystem.getScore()}`);
     this.state = GameState.GAME_OVER;
     this.hudManager.showGameOver(this.scoringSystem.getScore());
   }
@@ -250,6 +266,7 @@ export class Game {
    * Handle win condition
    */
   private winGame(): void {
+    debugLog.info(TAG, `Player wins — final score: ${this.scoringSystem.getScore()}`);
     this.state = GameState.WIN;
     this.hudManager.showWin(this.scoringSystem.getScore());
   }

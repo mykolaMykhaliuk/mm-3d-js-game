@@ -4,6 +4,9 @@ import { TextBlock } from '@babylonjs/gui/2D/controls/textBlock';
 import { Rectangle } from '@babylonjs/gui/2D/controls/rectangle';
 import { Button } from '@babylonjs/gui/2D/controls/button';
 import { Control } from '@babylonjs/gui/2D/controls/control';
+import { debugLog } from './utils/debug-logger';
+
+const TAG = 'HUDManager';
 
 /**
  * Manages all HUD and GUI elements
@@ -38,11 +41,17 @@ export class HUDManager {
   private onRestartGame?: () => void;
 
   constructor(_scene: Scene) {
+    debugLog.info(TAG, 'Creating AdvancedDynamicTexture (fullscreen UI)...');
     this.advancedTexture = AdvancedDynamicTexture.CreateFullscreenUI('UI');
+    debugLog.info(TAG, 'Creating HUD elements...');
     this.createHUD();
+    debugLog.info(TAG, 'Creating menu screen...');
     this.createMenu();
+    debugLog.info(TAG, 'Creating game-over screen...');
     this.createGameOverScreen();
+    debugLog.info(TAG, 'Creating win screen...');
     this.createWinScreen();
+    debugLog.info(TAG, 'HUDManager construction complete');
   }
 
   /**
@@ -211,6 +220,7 @@ export class HUDManager {
    * Show menu screen
    */
   showMenu(): void {
+    debugLog.info(TAG, 'showMenu');
     this.menuContainer.isVisible = true;
     this.gameOverContainer.isVisible = false;
     this.winContainer.isVisible = false;
@@ -221,6 +231,7 @@ export class HUDManager {
    * Show game over screen
    */
   showGameOver(finalScore: number): void {
+    debugLog.info(TAG, `showGameOver (score: ${finalScore})`);
     this.gameOverScore.text = `Final Score: ${finalScore}`;
     this.gameOverContainer.isVisible = true;
     this.menuContainer.isVisible = false;
@@ -232,6 +243,7 @@ export class HUDManager {
    * Show win screen
    */
   showWin(finalScore: number): void {
+    debugLog.info(TAG, `showWin (score: ${finalScore})`);
     this.winScore.text = `Final Score: ${finalScore}`;
     this.winContainer.isVisible = true;
     this.menuContainer.isVisible = false;
@@ -243,6 +255,7 @@ export class HUDManager {
    * Show in-game HUD
    */
   showHUD(): void {
+    debugLog.info(TAG, 'showHUD');
     this.scoreText.isVisible = true;
     this.healthText.isVisible = true;
     this.waveText.isVisible = true;
