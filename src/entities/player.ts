@@ -1,15 +1,17 @@
 import { Scene } from '@babylonjs/core/scene';
-import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
-import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { Vector2, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { IEntity } from '../entity-manager';
-import { PLAYER_SPEED, PLAYER_SIZE, ARENA_SIZE, PLAYER_HEALTH } from '../utils/constants';
+import { PLAYER_SPEED, ARENA_SIZE, PLAYER_HEALTH } from '../utils/constants';
 import { clamp } from '../utils/helpers';
+import { buildPlayerModel } from './player-model';
 
 /**
- * Player entity - controlled by the player via input
+ * Player entity - controlled by the player via input.
+ *
+ * The visual model is a procedurally built explorer character
+ * (fedora, leather jacket, satchel, etc.) constructed from
+ * Babylon.js primitives in player-model.ts.
  */
 export class Player implements IEntity {
   type: 'player' = 'player';
@@ -23,19 +25,9 @@ export class Player implements IEntity {
   constructor(scene: Scene, position: Vector3 = Vector3.Zero()) {
     this.health = PLAYER_HEALTH;
 
-    // Create player mesh (a box/turret)
-    this.mesh = MeshBuilder.CreateBox(
-      'player',
-      { width: PLAYER_SIZE, height: PLAYER_SIZE, depth: PLAYER_SIZE },
-      scene
-    );
+    // Build the full explorer character model (parented mesh hierarchy)
+    this.mesh = buildPlayerModel(scene);
     this.mesh.position = position;
-
-    // Create material
-    const material = new StandardMaterial('playerMat', scene);
-    material.diffuseColor = new Color3(0.2, 0.6, 1.0); // Blue
-    material.specularColor = new Color3(0.3, 0.3, 0.3);
-    this.mesh.material = material;
   }
 
   /**
@@ -56,6 +48,18 @@ export class Player implements IEntity {
     // Clamp to arena bounds
     this.mesh.position.x = clamp(this.mesh.position.x, -ARENA_SIZE, ARENA_SIZE);
     this.mesh.position.z = clamp(this.mesh.position.z, -ARENA_SIZE, ARENA_SIZE);
+  }
+
+  /**
+   * Rotate the character to face a world-space target on the XZ plane.
+   * @param target - World position to face (typically the aim point)
+   */
+  faceTarget(target: Vector3): void {
+    const dx = target.x - this.mesh.position.x;
+    const dz = target.z - this.mesh.position.z;
+    if (dx * dx + dz * dz > 0.01) {
+      this.mesh.rotation.y = Math.atan2(dx, dz);
+    }
   }
 
   /**
@@ -114,7 +118,6 @@ export class Player implements IEntity {
    */
   update(_deltaTime: number): void {
     // Player movement is handled externally by Game class
-    // This is just to satisfy the IEntity interface
   }
 
   /**
