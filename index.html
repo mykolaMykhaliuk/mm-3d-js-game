@@ -2,8 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="description" content="3D Alien Shooter - A browser-based proof-of-concept game built with Babylon.js" />
+    <meta name="screen-orientation" content="landscape" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Alien Shooter 3D</title>
     <style>
       html,
@@ -15,6 +19,7 @@
         overflow: hidden;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu,
           Cantarell, sans-serif;
+        background: #000;
       }
 
       #renderCanvas {
@@ -23,11 +28,66 @@
         display: block;
         touch-action: none;
         outline: none;
+        -webkit-tap-highlight-color: transparent;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+
+      /* Portrait orientation warning overlay */
+      #portraitOverlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.95);
+        z-index: 9999;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        color: white;
+        font-size: 20px;
+        text-align: center;
+        padding: 20px;
+        box-sizing: border-box;
+      }
+
+      #portraitOverlay .rotate-icon {
+        font-size: 64px;
+        margin-bottom: 20px;
+        animation: rotateHint 2s ease-in-out infinite;
+      }
+
+      #portraitOverlay .rotate-text {
+        max-width: 280px;
+        line-height: 1.4;
+      }
+
+      @keyframes rotateHint {
+        0%, 100% { transform: rotate(0deg); }
+        25% { transform: rotate(-30deg); }
+        75% { transform: rotate(30deg); }
+      }
+
+      /* Show portrait overlay only in portrait on touch devices */
+      @media (orientation: portrait) and (hover: none) and (pointer: coarse) {
+        #portraitOverlay {
+          display: flex;
+        }
+        #renderCanvas {
+          display: none;
+        }
       }
     </style>
   </head>
   <body>
     <canvas id="renderCanvas"></canvas>
+    <div id="portraitOverlay">
+      <div class="rotate-icon">&#x1F4F1;</div>
+      <div class="rotate-text">Please rotate your device to landscape mode to play</div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

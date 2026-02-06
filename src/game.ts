@@ -119,8 +119,11 @@ export class Game {
    * @param deltaTime - Time since last frame in seconds
    */
   update(deltaTime: number): void {
-    // Update input state
-    this.inputManager.update();
+    // Update input state (deltaTime needed for shoot flash decay)
+    this.inputManager.update(deltaTime);
+
+    // Update touch visuals (joystick + muzzle flash) every frame
+    this.hudManager.updateTouchVisuals(this.inputManager);
 
     // Update based on current state
     switch (this.state) {
@@ -152,10 +155,11 @@ export class Game {
     const inputState = this.inputManager.getState();
     this.player.updateMovement(deltaTime, inputState.movement);
 
-    // Handle shooting
+    // Handle shooting — continuous auto-fire while touch/click held
     if (inputState.shooting && this.player.canFire(this.gameTime, PROJECTILE_FIRE_RATE)) {
       this.fireProjectile(inputState.aimPoint);
       this.player.recordFire(this.gameTime);
+      this.inputManager.triggerShootFlash();
     }
 
     // Update camera to follow player smoothly

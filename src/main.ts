@@ -3,6 +3,7 @@ import { Scene } from '@babylonjs/core/scene';
 import { setupScene } from './scene-setup';
 import { Game } from './game';
 import { debugLog, initDebugOverlay, forceShowOverlay } from './utils/debug-logger';
+import { isMobile } from './utils/helpers';
 
 const TAG = 'Main';
 
@@ -25,6 +26,30 @@ function installGlobalErrorHandlers(): void {
 }
 
 /**
+ * Attempt to lock the screen orientation to landscape on mobile.
+ * Uses the Screen Orientation API where available (most Android browsers).
+ * Falls back gracefully — the CSS portrait overlay handles iOS/unsupported.
+ */
+function lockLandscapeOrientation(): void {
+  if (!isMobile()) return;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const orientation = screen.orientation as any;
+    if (orientation && typeof orientation.lock === 'function') {
+      orientation.lock('landscape').then(() => {
+        debugLog.info(TAG, 'Screen orientation locked to landscape');
+      }).catch((err: Error) => {
+        // Expected to fail on iOS and some browsers — CSS handles it
+        debugLog.info(TAG, `Orientation lock not supported: ${err.message}`);
+      });
+    }
+  } catch (_e) {
+    debugLog.info(TAG, 'Screen Orientation API not available');
+  }
+}
+
+/**
  * Application entry point
  * Initializes the Babylon.js engine and starts the game
  */
@@ -44,6 +69,9 @@ function main(): void {
     TAG,
     `Window inner: ${window.innerWidth}x${window.innerHeight}`
   );
+
+  // Attempt landscape lock on mobile
+  lockLandscapeOrientation();
 
   // Step 1: Get the canvas element
   debugLog.info(TAG, 'Step 1: Looking for #renderCanvas...');
@@ -113,11 +141,16 @@ function main(): void {
     return;
   }
 
-  // Handle window resize
-  window.addEventListener('resize', () => {
+  // Handle window resize and orientation change
+  const handleResize = () => {
     engine.resize();
+  };
+  window.addEventListener('resize', handleResize);
+  window.addEventListener('orientationchange', () => {
+    // Delay resize slightly to let the browser settle the new dimensions
+    setTimeout(handleResize, 150);
   });
-  debugLog.info(TAG, 'Window resize handler registered');
+  debugLog.info(TAG, 'Window resize + orientationchange handlers registered');
 
   // Step 6: Start the render loop
   debugLog.info(TAG, 'Step 6: Starting render loop...');
