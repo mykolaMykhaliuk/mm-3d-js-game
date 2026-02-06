@@ -155,6 +155,9 @@ export class Game {
     const inputState = this.inputManager.getState();
     this.player.updateMovement(deltaTime, inputState.movement);
 
+    // Rotate the character to face the aim direction
+    this.player.faceTarget(inputState.aimPoint);
+
     // Handle shooting — continuous auto-fire while touch/click held
     if (inputState.shooting && this.player.canFire(this.gameTime, PROJECTILE_FIRE_RATE)) {
       this.fireProjectile(inputState.aimPoint);
@@ -237,8 +240,8 @@ export class Game {
     const playerPos = this.player.getPosition();
     const direction = aimPoint.subtract(playerPos).normalize();
 
-    // Spawn projectile slightly above ground to avoid z-fighting
-    const spawnPos = playerPos.add(new Vector3(0, 0.5, 0));
+    // Spawn projectile at chest/hand height of the explorer character
+    const spawnPos = playerPos.add(new Vector3(0, 1.0, 0));
     const projectile = new Projectile(this.scene, spawnPos, direction);
     this.entityManager.add(projectile);
   }
