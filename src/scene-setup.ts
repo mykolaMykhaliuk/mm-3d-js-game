@@ -3,16 +3,14 @@ import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
-import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
-import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
+import { Color4 } from '@babylonjs/core/Maths/math.color';
 import {
   CAMERA_ALPHA,
   CAMERA_BETA,
   CAMERA_RADIUS,
-  ARENA_GROUND_SIZE,
 } from './utils/constants';
 import { debugLog } from './utils/debug-logger';
+import { createTownEnvironment } from './environment/town';
 
 const TAG = 'SceneSetup';
 
@@ -64,19 +62,9 @@ export function setupScene(scene: Scene): ArcRotateCamera {
   const ambientLight = new HemisphericLight('ambient', new Vector3(0, 1, 0), scene);
   ambientLight.intensity = 0.4;
 
-  // Create ground plane
-  debugLog.info(TAG, `Creating ground plane (${ARENA_GROUND_SIZE}x${ARENA_GROUND_SIZE})...`);
-  const ground = MeshBuilder.CreateGround(
-    'ground',
-    { width: ARENA_GROUND_SIZE, height: ARENA_GROUND_SIZE },
-    scene
-  );
-
-  // Ground material with grid pattern
-  const groundMaterial = new StandardMaterial('groundMat', scene);
-  groundMaterial.diffuseColor = new Color3(0.2, 0.3, 0.2);
-  groundMaterial.specularColor = new Color3(0, 0, 0);
-  ground.material = groundMaterial;
+  // Create town environment (ground, roads, houses, cars, trees)
+  debugLog.info(TAG, 'Creating town environment...');
+  createTownEnvironment(scene);
 
   debugLog.info(TAG, 'Scene setup complete');
   return camera;
